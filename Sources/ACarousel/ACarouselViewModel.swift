@@ -37,8 +37,8 @@ class ACarouselViewModel<Data, ID>: ObservableObject where Data : RandomAccessCo
     private let _autoScroll: ACarouselAutoScroll
     private let _canMove: Bool
     
-    init(_ data: Data, id: KeyPath<Data.Element, ID>, index: Binding<Int>, spacing: CGFloat, headspace: CGFloat, sidesScaling: CGFloat, isWrap: Bool, autoScroll: ACarouselAutoScroll, canMove: Bool) {
-        
+    init(_ data: Data, id: KeyPath<Data.Element, ID>, index: Binding<Int>, spacing: CGFloat, headspace: CGFloat, sidesScaling: CGFloat, isWrap: Bool, autoScroll: ACarouselAutoScroll, isTimerActive: Binding<Bool>, flick: CGFloat, canMove: Bool) {
+
         guard index.wrappedValue < data.count else {
             fatalError("The index should be less than the count of data ")
         }
@@ -50,6 +50,8 @@ class ACarouselViewModel<Data, ID>: ObservableObject where Data : RandomAccessCo
         self._isWrap = isWrap
         self._sidesScaling = sidesScaling
         self._autoScroll = autoScroll
+        self.isTimerActive = isTimerActive
+        self.flick = flick
         self._canMove = canMove
         
         if data.count > 1 && isWrap {
@@ -95,18 +97,18 @@ class ACarouselViewModel<Data, ID>: ObservableObject where Data : RandomAccessCo
     /// Define listen to the timer
     /// Ignores listen while dragging, and listen again after the drag is over
     /// Ignores listen when App will resign active, and listen again when it become active
-    private var isTimerActive = true
+    private var isTimerActive: Binding<Bool>
     func setTimerActive(_ active: Bool) {
-        isTimerActive = active
+        isTimerActive.wrappedValue = active
     }
-    
+    private var flick: CGFloat
 }
 
 
 extension ACarouselViewModel where ID == Data.Element.ID, Data.Element : Identifiable {
     
-    convenience init(_ data: Data, index: Binding<Int>, spacing: CGFloat, headspace: CGFloat, sidesScaling: CGFloat, isWrap: Bool, autoScroll: ACarouselAutoScroll, canMove: Bool) {
-        self.init(data, id: \.id, index: index, spacing: spacing, headspace: headspace, sidesScaling: sidesScaling, isWrap: isWrap, autoScroll: autoScroll, canMove: canMove)
+    convenience init(_ data: Data, index: Binding<Int>, spacing: CGFloat, headspace: CGFloat, sidesScaling: CGFloat, isWrap: Bool, autoScroll: ACarouselAutoScroll, isTimerActive: Binding<Bool>, flick: CGFloat, canMove: Bool) {
+        self.init(data, id: \.id, index: index, spacing: spacing, headspace: headspace, sidesScaling: sidesScaling, isWrap: isWrap, autoScroll: autoScroll, isTimerActive: isTimerActive, flick: flick, canMove: canMove)
     }
 }
 
@@ -256,7 +258,7 @@ extension ACarouselViewModel {
         dragOffset = offset
         
         /// stop active timer
-        isTimerActive = false
+        isTimerActive.wrappedValue = false
     }
     
     private func dragEnded(_ value: DragGesture.Value) {
@@ -266,8 +268,11 @@ extension ACarouselViewModel {
         
         /// reset timing and restart active timer
         resetTiming()
-        isTimerActive = true
-        
+        //isTimerActive = true
+
+        let velocity = value.velocity.width
+        let flick = abs(velocity) > self.flick
+
         /// Defines the drag threshold
         /// At the end of the drag, if the drag value exceeds the drag threshold,
         /// the active view will be toggled
@@ -275,10 +280,10 @@ extension ACarouselViewModel {
         let dragThreshold: CGFloat = itemWidth / 3
         
         var activeIndex = self.activeIndex
-        if value.translation.width > dragThreshold {
+        if value.translation.width > dragThreshold || (flick && velocity > 0) {
             activeIndex -= 1
         }
-        if value.translation.width < -dragThreshold {
+        if value.translation.width < -dragThreshold || (flick && velocity < 0) {
             activeIndex += 1
         }
         self.activeIndex = max(0, min(activeIndex, data.count - 1))
@@ -291,7 +296,7 @@ extension ACarouselViewModel {
     /// timer change
     func receiveTimer(_ value: Timer.TimerPublisher.Output) {
         /// Ignores listen when `isTimerActive` is false.
-        guard isTimerActive else {
+        guard isTimerActive.wrappedValue else {
             return
         }
         /// increments of one and compare to the scrolling duration
