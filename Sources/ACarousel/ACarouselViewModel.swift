@@ -39,9 +39,11 @@ class ACarouselViewModel<Data, ID>: ObservableObject where Data : RandomAccessCo
     
     init(_ data: Data, id: KeyPath<Data.Element, ID>, index: Binding<Int>, spacing: CGFloat, headspace: CGFloat, sidesScaling: CGFloat, isWrap: Bool, autoScroll: ACarouselAutoScroll, isTimerActive: Binding<Bool>, flick: CGFloat, canMove: Bool) {
 
-        guard index.wrappedValue < data.count else {
-            fatalError("The index should be less than the count of data ")
-        }
+        /// The start slide is the external index clamped into the data:
+        /// an index past the data lands on the last slide, a negative one
+        /// on the first, empty data on 0 and nothing is rendered. The
+        /// binding is read here, never written.
+        let start = data.isEmpty ? 0 : min(max(index.wrappedValue, 0), data.count - 1)
         
         self._data = data
         self._dataId = id
@@ -55,12 +57,21 @@ class ACarouselViewModel<Data, ID>: ObservableObject where Data : RandomAccessCo
         self._canMove = canMove
         
         if data.count > 1 && isWrap {
-            activeIndex = index.wrappedValue + 1
+            activeIndex = start + 1
         } else {
-            activeIndex = index.wrappedValue
+            activeIndex = start
         }
-        
+
         self._index = index
+
+        /// A view model is built on every body evaluation of the host. The
+        /// wrap snap leaves the flag down so that its own rebuild — at the
+        /// index it settled on — renders with no animation; a rebuild at any
+        /// other index is an external navigation (a dot tap, a sibling's
+        /// write) and animates.
+        if !isAnimatedOffset && start != settledIndex {
+            isAnimatedOffset = true
+        }
     }
     
     
@@ -191,10 +202,18 @@ extension ACarouselViewModel {
         return max(min(_sidesScaling, 1), 0)
     }
     
-    /// Is animated when view is in offset
+    /// Is animated when view is in offset — process memory, see
+    /// `ACarouselOffsetMemory`.
     private var isAnimatedOffset: Bool {
-        get { UserDefaults.isAnimatedOffset }
-        set { UserDefaults.isAnimatedOffset = newValue }
+        get { ACarouselOffsetMemory.isAnimated }
+        set { ACarouselOffsetMemory.isAnimated = newValue }
+    }
+
+    /// The external index the last wrap snap settled on — process memory,
+    /// see `ACarouselOffsetMemory`.
+    private var settledIndex: Int? {
+        get { ACarouselOffsetMemory.settledIndex }
+        set { ACarouselOffsetMemory.settledIndex = newValue }
     }
 }
 
@@ -218,11 +237,20 @@ extension ACarouselViewModel {
         
         if offset == minimumOffset {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                /// The external index read `0` when the edge copy was
+                /// reached; if it has moved since (a dot tap, a list reset),
+                /// the host has already rebuilt for it and this snap is stale.
+                guard self.index == 0 else { return }
+                self.settledIndex = self._data.count - 1
                 self.activeIndex = self.data.count - 2
                 self.isAnimatedOffset = false
             }
         } else if offset == maxinumOffset {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                /// The external index read `count - 1` when the edge copy
+                /// was reached; if it has moved since, this snap is stale.
+                guard self.index == self._data.count - 1 else { return }
+                self.settledIndex = 0
                 self.activeIndex = 1
                 self.isAnimatedOffset = false
             }
@@ -332,18 +360,23 @@ extension ACarouselViewModel {
 }
 
 
-private extension UserDefaults {
+/// The one piece of state that outlives a view model. `ACarousel` builds a
+/// new view model on every body evaluation of its host, so the animation
+/// flag and the slide the last wrap snap settled on live here — for the
+/// process, not on disk (the flag used to be a `UserDefaults` key, written
+/// on every drag event and surviving a relaunch). `internal` so the
+/// package's own tests can set and read it.
+enum ACarouselOffsetMemory {
 
-    private struct Keys {
-        static let isAnimatedOffset = "isAnimatedOffset"
-    }
+    /// Whether the next offset change animates (`.spring()`) or lands with
+    /// no animation (`.none`). Raised by every `activeIndex` change and by
+    /// a drag, lowered by the wrap snap once the strip has been moved to the
+    /// real slide, and raised again by `init` for a rebuild at an index
+    /// other than the settled one.
+    static var isAnimated = false
 
-    static var isAnimatedOffset: Bool {
-        get {
-            return UserDefaults.standard.bool(forKey: Keys.isAnimatedOffset)
-        }
-        set {
-            UserDefaults.standard.set(newValue, forKey: Keys.isAnimatedOffset)
-        }
-    }
+    /// The external index the last wrap snap wrote: `0` after a forward
+    /// wrap, `count - 1` after a backward one; `nil` until a snap has
+    /// happened in this process.
+    static var settledIndex: Int?
 }

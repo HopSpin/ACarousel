@@ -18,6 +18,9 @@ let package = Package(
     targets: [
         .target(
             name: "ACarousel",
-            dependencies: [])
+            dependencies: []),
+        .testTarget(
+            name: "ACarouselTests",
+            dependencies: ["ACarousel"])
     ]
 )
