@@ -106,7 +106,8 @@ class ACarouselViewModel<Data, ID>: ObservableObject where Data : RandomAccessCo
     private var timing: TimeInterval = 0
     
     /// Define listen to the timer
-    /// Ignores listen while dragging, and listen again after the drag is over
+    /// A drag stops it (`dragChanged`) and nothing in this package starts it
+    /// again — the host owns the binding and re-arms it
     /// Ignores listen when App will resign active, and listen again when it become active
     private var isTimerActive: Binding<Bool>
     func setTimerActive(_ active: Bool) {
@@ -294,9 +295,9 @@ extension ACarouselViewModel {
         /// reset drag offset
         dragOffset = .zero
         
-        /// reset timing and restart active timer
+        /// reset timing; the timer is not re-armed here — `dragChanged`
+        /// stopped it and the host owns when it runs again
         resetTiming()
-        //isTimerActive = true
 
         let velocity = value.velocity.width
         let flick = abs(velocity) > self.flick
@@ -329,19 +330,18 @@ extension ACarouselViewModel {
         }
         /// increments of one and compare to the scrolling duration
         /// return when timing less than duration
-        activeTiming()
         timing += 1
         if timing < autoScroll.interval {
             return
         }
         
         if activeIndex == data.count - 1 {
-            /// `isWrap` is false.
-            /// Revert to the first view after scrolling to the last view
+            /// At the last subview — the last slide when not wrapping, the
+            /// end edge copy when wrapping — back to the first.
             activeIndex = 0
         } else {
-            /// `isWrap` is true.
-            /// Incremental, calculation of offset by `offsetChanged(_: proxy:)`
+            /// One step forward; when wrapping, an edge copy reached here is
+            /// handed to the snap in `changeOffset()`.
             activeIndex += 1
         }
         resetTiming()
@@ -351,11 +351,6 @@ extension ACarouselViewModel {
     /// reset counting of time
     private func resetTiming() {
         timing = 0
-    }
-    
-    /// time increments of one
-    private func activeTiming() {
-        timing += 1
     }
 }
 

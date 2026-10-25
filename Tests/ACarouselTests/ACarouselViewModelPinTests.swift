@@ -42,6 +42,10 @@ import SwiftUI
 ///     tap, a list reset) does nothing — the moved value stands,
 ///     `activeIndex` stays on the edge copy, the flag stays up, nothing is
 ///     settled.
+///  5. CADENCE (L36-3): `receiveTimer` counts one per tick, so `.active(n)`
+///     advances on the n-th tick and again n ticks later (the inherited
+///     double count advanced on the fourth tick of seven); a stopped timer
+///     ignores ticks.
 ///
 /// Geometry: spacing 0 / headspace 0 and a 390-pt width, so one slide is one
 /// `itemActualWidth` and the edge offsets are exact.
@@ -64,7 +68,9 @@ final class ACarouselViewModelPinTests: XCTestCase {
     private func makeViewModel(
         count: Int,
         index: ExternalIndex,
-        isWrap: Bool = true
+        isWrap: Bool = true,
+        autoScroll: ACarouselAutoScroll = .inactive,
+        isTimerActive: Bool = false
     ) -> ACarouselViewModel<[Slide], Int> {
         let viewModel = ACarouselViewModel(
             (0..<count).map { Slide(id: $0) },
@@ -74,8 +80,8 @@ final class ACarouselViewModelPinTests: XCTestCase {
             headspace: 0,
             sidesScaling: 1,
             isWrap: isWrap,
-            autoScroll: .inactive,
-            isTimerActive: .constant(false),
+            autoScroll: autoScroll,
+            isTimerActive: .constant(isTimerActive),
             flick: 500,
             canMove: true
         )
@@ -231,5 +237,36 @@ final class ACarouselViewModelPinTests: XCTestCase {
         XCTAssertEqual(viewModel.activeIndex, 0)
         XCTAssertNil(ACarouselOffsetMemory.settledIndex)
         XCTAssertTrue(ACarouselOffsetMemory.isAnimated)
+    }
+
+    // MARK: - 5. The cadence (L36-3)
+
+    func test_receiveTimer_advancesOnTheIntervalsTick_andAgainOneIntervalLater() {
+        let external = ExternalIndex(0)
+        let viewModel = makeViewModel(count: 3, index: external, autoScroll: .active(5), isTimerActive: true)
+        for tick in 1...4 {
+            viewModel.receiveTimer(Date())
+            XCTAssertEqual(viewModel.activeIndex, 1, "tick \(tick) of 5: no advance yet")
+        }
+        viewModel.receiveTimer(Date())
+        XCTAssertEqual(viewModel.activeIndex, 2, "the fifth tick advances (the inherited double count advanced on the fourth tick of seven)")
+        XCTAssertEqual(external.value, 1)
+        for tick in 6...9 {
+            viewModel.receiveTimer(Date())
+            XCTAssertEqual(viewModel.activeIndex, 2, "tick \(tick): the count restarted at the advance")
+        }
+        viewModel.receiveTimer(Date())
+        XCTAssertEqual(viewModel.activeIndex, 3, "the tenth tick advances again")
+        XCTAssertEqual(external.value, 2)
+    }
+
+    func test_receiveTimer_ignoresTicksWhileTheTimerIsStopped() {
+        let external = ExternalIndex(0)
+        let viewModel = makeViewModel(count: 3, index: external, autoScroll: .active(5), isTimerActive: false)
+        for _ in 1...12 {
+            viewModel.receiveTimer(Date())
+        }
+        XCTAssertEqual(viewModel.activeIndex, 1, "a stopped timer never advances")
+        XCTAssertEqual(external.value, 0)
     }
 }
