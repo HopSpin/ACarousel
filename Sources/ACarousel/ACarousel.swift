@@ -73,10 +73,13 @@ extension ACarousel {
     ///   - isWrap: Define views to scroll through in a loop, default is false.
     ///   - autoScroll: A enum that define view to scroll automatically. See
     ///     ``ACarouselAutoScroll``. default is `inactive`.
+    ///   - offsetMemory: The animation memory this carousel reads and writes
+    ///     across its host's rebuilds — one per carousel; hosts that share a
+    ///     position on purpose share one. See ``ACarouselOffsetMemory``.
     ///   - content: The view builder that creates views dynamically.
-    public init(_ data: Data, id: KeyPath<Data.Element, ID>, index: Binding<Int> = .constant(0), spacing: CGFloat = 10, headspace: CGFloat = 10, sidesScaling: CGFloat = 0.8, isWrap: Bool = false, autoScroll: ACarouselAutoScroll = .inactive, isTimerActive: Binding<Bool>, flick: CGFloat, canMove: Bool = true, @ViewBuilder content: @escaping (Data.Element) -> Content) {
+    public init(_ data: Data, id: KeyPath<Data.Element, ID>, index: Binding<Int> = .constant(0), spacing: CGFloat = 10, headspace: CGFloat = 10, sidesScaling: CGFloat = 0.8, isWrap: Bool = false, autoScroll: ACarouselAutoScroll = .inactive, isTimerActive: Binding<Bool>, flick: CGFloat, canMove: Bool = true, offsetMemory: ACarouselOffsetMemory, @ViewBuilder content: @escaping (Data.Element) -> Content) {
 
-        self.viewModel = ACarouselViewModel(data, id: id, index: index, spacing: spacing, headspace: headspace, sidesScaling: sidesScaling, isWrap: isWrap, autoScroll: autoScroll, isTimerActive: isTimerActive, flick: flick, canMove: canMove)
+        self.viewModel = ACarouselViewModel(data, id: id, index: index, spacing: spacing, headspace: headspace, sidesScaling: sidesScaling, isWrap: isWrap, autoScroll: autoScroll, isTimerActive: isTimerActive, flick: flick, canMove: canMove, offsetMemory: offsetMemory)
         self.content = content
     }
     
@@ -99,10 +102,13 @@ extension ACarousel where ID == Data.Element.ID, Data.Element : Identifiable {
     ///   - isWrap: Define views to scroll through in a loop, default is false.
     ///   - autoScroll: A enum that define view to scroll automatically. See
     ///     ``ACarouselAutoScroll``. default is `inactive`.
+    ///   - offsetMemory: The animation memory this carousel reads and writes
+    ///     across its host's rebuilds — one per carousel; hosts that share a
+    ///     position on purpose share one. See ``ACarouselOffsetMemory``.
     ///   - content: The view builder that creates views dynamically.
-    public init(_ data: Data, index: Binding<Int> = .constant(0), spacing: CGFloat = 10, headspace: CGFloat = 10, sidesScaling: CGFloat = 0.8, isWrap: Bool = false, autoScroll: ACarouselAutoScroll = .inactive, isTimerActive: Binding<Bool>, flick: CGFloat, canMove: Bool = true, @ViewBuilder content: @escaping (Data.Element) -> Content) {
+    public init(_ data: Data, index: Binding<Int> = .constant(0), spacing: CGFloat = 10, headspace: CGFloat = 10, sidesScaling: CGFloat = 0.8, isWrap: Bool = false, autoScroll: ACarouselAutoScroll = .inactive, isTimerActive: Binding<Bool>, flick: CGFloat, canMove: Bool = true, offsetMemory: ACarouselOffsetMemory, @ViewBuilder content: @escaping (Data.Element) -> Content) {
 
-        self.viewModel = ACarouselViewModel(data, index: index, spacing: spacing, headspace: headspace, sidesScaling: sidesScaling, isWrap: isWrap, autoScroll: autoScroll, isTimerActive: isTimerActive, flick: flick, canMove: canMove)
+        self.viewModel = ACarouselViewModel(data, index: index, spacing: spacing, headspace: headspace, sidesScaling: sidesScaling, isWrap: isWrap, autoScroll: autoScroll, isTimerActive: isTimerActive, flick: flick, canMove: canMove, offsetMemory: offsetMemory)
         self.content = content
     }
     
@@ -114,8 +120,8 @@ struct ACarousel_LibraryContent: LibraryContentProvider {
     let Datas = Array(repeating: _Item(color: .red), count: 3)
     @LibraryContentBuilder
     var views: [LibraryItem] {
-        LibraryItem(ACarousel(Datas, isTimerActive: .constant(true), flick: 50) { _ in }, title: "ACarousel", category: .control)
-        LibraryItem(ACarousel(Datas, index: .constant(0), spacing: 10, headspace: 10, sidesScaling: 0.8, isWrap: false, autoScroll: .inactive, isTimerActive: .constant(true), flick: 50) { _ in }, title: "ACarousel full parameters", category: .control)
+        LibraryItem(ACarousel(Datas, isTimerActive: .constant(true), flick: 50, offsetMemory: ACarouselOffsetMemory()) { _ in }, title: "ACarousel", category: .control)
+        LibraryItem(ACarousel(Datas, index: .constant(0), spacing: 10, headspace: 10, sidesScaling: 0.8, isWrap: false, autoScroll: .inactive, isTimerActive: .constant(true), flick: 50, offsetMemory: ACarouselOffsetMemory()) { _ in }, title: "ACarousel full parameters", category: .control)
     }
 
     struct _Item: Identifiable {

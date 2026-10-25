@@ -36,8 +36,10 @@ class ACarouselViewModel<Data, ID>: ObservableObject where Data : RandomAccessCo
     private let _sidesScaling: CGFloat
     private let _autoScroll: ACarouselAutoScroll
     private let _canMove: Bool
+    /// The host's animation memory (L36-4) — see `ACarouselOffsetMemory`.
+    private let offsetMemory: ACarouselOffsetMemory
     
-    init(_ data: Data, id: KeyPath<Data.Element, ID>, index: Binding<Int>, spacing: CGFloat, headspace: CGFloat, sidesScaling: CGFloat, isWrap: Bool, autoScroll: ACarouselAutoScroll, isTimerActive: Binding<Bool>, flick: CGFloat, canMove: Bool) {
+    init(_ data: Data, id: KeyPath<Data.Element, ID>, index: Binding<Int>, spacing: CGFloat, headspace: CGFloat, sidesScaling: CGFloat, isWrap: Bool, autoScroll: ACarouselAutoScroll, isTimerActive: Binding<Bool>, flick: CGFloat, canMove: Bool, offsetMemory: ACarouselOffsetMemory) {
 
         /// The start slide is the external index clamped into the data:
         /// an index past the data lands on the last slide, a negative one
@@ -55,6 +57,7 @@ class ACarouselViewModel<Data, ID>: ObservableObject where Data : RandomAccessCo
         self.isTimerActive = isTimerActive
         self.flick = flick
         self._canMove = canMove
+        self.offsetMemory = offsetMemory
         
         if data.count > 1 && isWrap {
             activeIndex = start + 1
@@ -119,8 +122,8 @@ class ACarouselViewModel<Data, ID>: ObservableObject where Data : RandomAccessCo
 
 extension ACarouselViewModel where ID == Data.Element.ID, Data.Element : Identifiable {
     
-    convenience init(_ data: Data, index: Binding<Int>, spacing: CGFloat, headspace: CGFloat, sidesScaling: CGFloat, isWrap: Bool, autoScroll: ACarouselAutoScroll, isTimerActive: Binding<Bool>, flick: CGFloat, canMove: Bool) {
-        self.init(data, id: \.id, index: index, spacing: spacing, headspace: headspace, sidesScaling: sidesScaling, isWrap: isWrap, autoScroll: autoScroll, isTimerActive: isTimerActive, flick: flick, canMove: canMove)
+    convenience init(_ data: Data, index: Binding<Int>, spacing: CGFloat, headspace: CGFloat, sidesScaling: CGFloat, isWrap: Bool, autoScroll: ACarouselAutoScroll, isTimerActive: Binding<Bool>, flick: CGFloat, canMove: Bool, offsetMemory: ACarouselOffsetMemory) {
+        self.init(data, id: \.id, index: index, spacing: spacing, headspace: headspace, sidesScaling: sidesScaling, isWrap: isWrap, autoScroll: autoScroll, isTimerActive: isTimerActive, flick: flick, canMove: canMove, offsetMemory: offsetMemory)
     }
 }
 
@@ -203,18 +206,18 @@ extension ACarouselViewModel {
         return max(min(_sidesScaling, 1), 0)
     }
     
-    /// Is animated when view is in offset — process memory, see
+    /// Is animated when view is in offset — the host's memory, see
     /// `ACarouselOffsetMemory`.
     private var isAnimatedOffset: Bool {
-        get { ACarouselOffsetMemory.isAnimated }
-        set { ACarouselOffsetMemory.isAnimated = newValue }
+        get { offsetMemory.isAnimated }
+        set { offsetMemory.isAnimated = newValue }
     }
 
-    /// The external index the last wrap snap settled on — process memory,
-    /// see `ACarouselOffsetMemory`.
+    /// The external index the last wrap snap settled on — the host's
+    /// memory, see `ACarouselOffsetMemory`.
     private var settledIndex: Int? {
-        get { ACarouselOffsetMemory.settledIndex }
-        set { ACarouselOffsetMemory.settledIndex = newValue }
+        get { offsetMemory.settledIndex }
+        set { offsetMemory.settledIndex = newValue }
     }
 }
 
@@ -357,21 +360,26 @@ extension ACarouselViewModel {
 
 /// The one piece of state that outlives a view model. `ACarousel` builds a
 /// new view model on every body evaluation of its host, so the animation
-/// flag and the slide the last wrap snap settled on live here — for the
-/// process, not on disk (the flag used to be a `UserDefaults` key, written
-/// on every drag event and surviving a relaunch). `internal` so the
-/// package's own tests can set and read it.
-enum ACarouselOffsetMemory {
+/// flag and the slide the last wrap snap settled on live here, in an object
+/// the HOST owns and hands to every `ACarousel` it builds (L36-4; before
+/// that a process-wide static, and before L36-2 a `UserDefaults` key written
+/// on every drag event and surviving a relaunch). One memory per carousel:
+/// two hosts with two memories never observe each other; hosts that share a
+/// position on purpose share one memory. The properties are `internal` so
+/// the package's own tests can set and read them.
+public final class ACarouselOffsetMemory: ObservableObject {
 
     /// Whether the next offset change animates (`.spring()`) or lands with
     /// no animation (`.none`). Raised by every `activeIndex` change and by
     /// a drag, lowered by the wrap snap once the strip has been moved to the
     /// real slide, and raised again by `init` for a rebuild at an index
     /// other than the settled one.
-    static var isAnimated = false
+    var isAnimated = false
 
     /// The external index the last wrap snap wrote: `0` after a forward
     /// wrap, `count - 1` after a backward one; `nil` until a snap has
-    /// happened in this process.
-    static var settledIndex: Int?
+    /// happened in this memory.
+    var settledIndex: Int?
+
+    public init() {}
 }
