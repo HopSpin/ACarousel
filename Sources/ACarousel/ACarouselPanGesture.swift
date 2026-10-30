@@ -44,11 +44,13 @@ struct ACarouselPanGesture: UIGestureRecognizerRepresentable {
     /// `false` for a carousel of one slide: the pan never begins and the
     /// page scrolls in every direction over the card (G-4 (a)).
     let canMove: Bool
-    /// `.began` and every `.changed`: the translation so far.
-    let onChanged: (CGSize) -> Void
+    /// `.began` and every `.changed`: the translation so far. Assigned by
+    /// the nonisolated initializer below and read only on the main actor,
+    /// hence `nonisolated(unsafe)`.
+    nonisolated(unsafe) let onChanged: (CGSize) -> Void
     /// `.ended`: the translation and the velocity at lift; `.cancelled`: the
     /// translation and a zero velocity.
-    let onEnded: (CGSize, CGSize) -> Void
+    nonisolated(unsafe) let onEnded: (CGSize, CGSize) -> Void
 
     /// Built by `ACarouselViewModel.dragGesture`, which is not main-actor
     /// isolated: an explicit nonisolated initializer that only assigns the
@@ -84,12 +86,14 @@ struct ACarouselPanGesture: UIGestureRecognizerRepresentable {
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
-        let translation = recognizer.translation(in: recognizer.view)
+        let point = recognizer.translation(in: recognizer.view)
+        let translation = CGSize(width: point.x, height: point.y)
         switch recognizer.state {
         case .began, .changed:
             onChanged(translation)
         case .ended:
-            onEnded(translation, recognizer.velocity(in: recognizer.view))
+            let rate = recognizer.velocity(in: recognizer.view)
+            onEnded(translation, CGSize(width: rate.x, height: rate.y))
         case .cancelled:
             onEnded(translation, .zero)
         default:
@@ -109,7 +113,8 @@ struct ACarouselPanGesture: UIGestureRecognizerRepresentable {
         /// hysteresis: the translation is the first movement itself.
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
-            return ACarouselPanGesture.shouldBegin(translation: pan.translation(in: pan.view), canMove: canMove)
+            let translation = pan.translation(in: pan.view)
+            return ACarouselPanGesture.shouldBegin(translation: CGSize(width: translation.x, height: translation.y), canMove: canMove)
         }
 
         /// The enclosing scroll view's pan waits for this recognizer to begin
