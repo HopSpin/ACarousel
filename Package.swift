@@ -5,9 +5,7 @@ import PackageDescription
 let package = Package(
     name: "ACarousel",
     platforms: [
-        .iOS(.v13),
-        .macOS(.v10_15),
-        .tvOS(.v11)
+        .iOS("18.0")
     ],
     products: [
         .library(

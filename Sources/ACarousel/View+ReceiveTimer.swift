@@ -21,10 +21,8 @@
 import SwiftUI
 import Combine
 
-@available(iOS 13.0, OSX 10.15, *)
 typealias TimePublisher = Publishers.Autoconnect<Timer.TimerPublisher>
 
-@available(iOS 13.0, OSX 10.15, *)
 extension View {
     
     func onReceive(timer: TimePublisher?, perform action: @escaping (Timer.TimerPublisher.Output) -> Void) -> some View {

@@ -54,6 +54,16 @@ import SwiftUI
 ///     the other at the first one's settled index still animates; two view
 ///     models handed the SAME memory are siblings, and the sibling built
 ///     for the snap's write, at the settled index, stays down.
+///  7. DRAG (ledger item 46): the handlers take a translation and a velocity
+///     instead of a `DragGesture.Value`, so the drag maths is pinned for the
+///     first time — the clamp of `dragOffset` to ± one item width, the timer
+///     stopped once per drag (G-R), the third-of-a-slide threshold, the
+///     flick against `flick` (strict), the index clamp at both ends, a drag
+///     onto an edge copy handed to the snap, `resetTiming` at the end,
+///     `canMove == false` a no-op in both handlers; and the pan's gate
+///     (`ACarouselPanGesture.shouldBegin`): horizontal-dominant true,
+///     vertical-dominant, equal and zero false, everything false when the
+///     carousel cannot move (G-3 (a), G-4 (a)).
 ///
 /// Geometry: spacing 0 / headspace 0 and a 390-pt width, so one slide is one
 /// `itemActualWidth` and the edge offsets are exact.
@@ -73,6 +83,18 @@ final class ACarouselViewModelPinTests: XCTestCase {
         }
     }
 
+    /// A stand-in for the host's timer flag (section 7): the view model
+    /// writes it through a `Binding`; the test reads it and counts the
+    /// writes.
+    private final class ExternalFlag {
+        var value: Bool
+        var writes = 0
+        init(_ value: Bool) { self.value = value }
+        var binding: Binding<Bool> {
+            Binding(get: { self.value }, set: { self.value = $0; self.writes += 1 })
+        }
+    }
+
     /// `memory` defaults to a fresh one per call; a pin that reads or
     /// pre-sets the memory passes its own.
     private func makeViewModel(
@@ -81,7 +103,9 @@ final class ACarouselViewModelPinTests: XCTestCase {
         isWrap: Bool = true,
         autoScroll: ACarouselAutoScroll = .inactive,
         isTimerActive: Bool = false,
-        memory: ACarouselOffsetMemory = ACarouselOffsetMemory()
+        memory: ACarouselOffsetMemory = ACarouselOffsetMemory(),
+        canMove: Bool = true,
+        timer: ExternalFlag? = nil
     ) -> ACarouselViewModel<[Slide], Int> {
         let viewModel = ACarouselViewModel(
             (0..<count).map { Slide(id: $0) },
@@ -92,9 +116,9 @@ final class ACarouselViewModelPinTests: XCTestCase {
             sidesScaling: 1,
             isWrap: isWrap,
             autoScroll: autoScroll,
-            isTimerActive: .constant(isTimerActive),
+            isTimerActive: timer?.binding ?? .constant(isTimerActive),
             flick: 500,
-            canMove: true,
+            canMove: canMove,
             offsetMemory: memory
         )
         viewModel.viewSize = CGSize(width: 390, height: 120)
@@ -333,5 +357,140 @@ final class ACarouselViewModelPinTests: XCTestCase {
         let navigated = makeViewModel(count: 2, index: ExternalIndex(1), memory: surfaceMemory)
         XCTAssertTrue(surfaceMemory.isAnimated, "a sibling built at any other index animates")
         XCTAssertNotNil(navigated.offsetAnimation)
+    }
+
+    // MARK: - 7. The drag (ledger item 46)
+
+    func test_dragChanged_clampsTheOffsetToOneItemWidth() {
+        let viewModel = makeViewModel(count: 3, index: ExternalIndex(1), isWrap: false)
+        viewModel.dragChanged(translation: CGSize(width: 100, height: 0))
+        XCTAssertEqual(viewModel.dragOffset, 100, "under one item width: the translation itself")
+        viewModel.dragChanged(translation: CGSize(width: 500, height: 0))
+        XCTAssertEqual(viewModel.dragOffset, 390, "past one item width: clamped to itemActualWidth")
+        viewModel.dragChanged(translation: CGSize(width: -500, height: 0))
+        XCTAssertEqual(viewModel.dragOffset, -390)
+        XCTAssertEqual(viewModel.offset, -780, "padding 0 − activeIndex 1 × 390 + dragOffset −390")
+    }
+
+    func test_dragChanged_stopsTheTimerOnce_andRaisesTheFlag() {
+        let memory = ACarouselOffsetMemory()
+        let timer = ExternalFlag(true)
+        let viewModel = makeViewModel(count: 3, index: ExternalIndex(0), memory: memory, timer: timer)
+        memory.isAnimated = false
+        viewModel.dragChanged(translation: CGSize(width: 20, height: 0))
+        XCTAssertFalse(timer.value, "the first delta stops the timer")
+        XCTAssertEqual(timer.writes, 1)
+        XCTAssertTrue(memory.isAnimated, "a drag animates")
+        viewModel.dragChanged(translation: CGSize(width: 40, height: 0))
+        viewModel.dragChanged(translation: CGSize(width: 60, height: 0))
+        XCTAssertEqual(timer.writes, 1, "G-R: later deltas do not write a value the binding already holds")
+        XCTAssertFalse(timer.value)
+    }
+
+    func test_dragEnded_underTheThreshold_staysPut_andZeroesTheOffset() {
+        let external = ExternalIndex(1)
+        let viewModel = makeViewModel(count: 3, index: external, isWrap: false)
+        viewModel.dragChanged(translation: CGSize(width: 100, height: 0))
+        viewModel.dragEnded(translation: CGSize(width: 100, height: 0), velocity: .zero)
+        XCTAssertEqual(viewModel.activeIndex, 1, "100 pt is under a third of 390")
+        XCTAssertEqual(external.value, 1)
+        XCTAssertEqual(viewModel.dragOffset, 0, "the strip springs back")
+        viewModel.dragEnded(translation: CGSize(width: -100, height: 0), velocity: .zero)
+        XCTAssertEqual(viewModel.activeIndex, 1)
+    }
+
+    func test_dragEnded_pastTheThreshold_stepsOneSlide() {
+        let external = ExternalIndex(1)
+        let viewModel = makeViewModel(count: 3, index: external, isWrap: false)
+        viewModel.dragEnded(translation: CGSize(width: 131, height: 0), velocity: .zero)
+        XCTAssertEqual(viewModel.activeIndex, 0, "a rightward drag past a third of the slide goes back one")
+        XCTAssertEqual(external.value, 0)
+        viewModel.dragEnded(translation: CGSize(width: -131, height: 0), velocity: .zero)
+        XCTAssertEqual(viewModel.activeIndex, 1, "a leftward one goes forward one")
+        XCTAssertEqual(external.value, 1)
+        viewModel.dragEnded(translation: CGSize(width: -390, height: 0), velocity: .zero)
+        XCTAssertEqual(viewModel.activeIndex, 2, "never more than one slide per drag")
+    }
+
+    func test_dragEnded_flick_stepsOnVelocity_strictlyPastFlick() {
+        let external = ExternalIndex(1)
+        let viewModel = makeViewModel(count: 3, index: external, isWrap: false)
+        viewModel.dragEnded(translation: CGSize(width: 20, height: 0), velocity: CGSize(width: 500, height: 0))
+        XCTAssertEqual(viewModel.activeIndex, 1, "at exactly `flick` (500) there is no flick")
+        viewModel.dragEnded(translation: CGSize(width: 20, height: 0), velocity: CGSize(width: 501, height: 0))
+        XCTAssertEqual(viewModel.activeIndex, 0, "a short rightward flick goes back one")
+        viewModel.dragEnded(translation: CGSize(width: -20, height: 0), velocity: CGSize(width: -900, height: 0))
+        XCTAssertEqual(viewModel.activeIndex, 1, "a leftward flick goes forward one")
+        XCTAssertEqual(external.value, 1)
+    }
+
+    func test_dragEnded_nonWrap_clampsAtBothEnds() {
+        let external = ExternalIndex(0)
+        let viewModel = makeViewModel(count: 3, index: external, isWrap: false)
+        viewModel.dragEnded(translation: CGSize(width: 300, height: 0), velocity: CGSize(width: 900, height: 0))
+        XCTAssertEqual(viewModel.activeIndex, 0, "no slide before the first")
+        XCTAssertEqual(external.value, 0)
+        viewModel.activeIndex = 2
+        viewModel.dragEnded(translation: CGSize(width: -300, height: 0), velocity: CGSize(width: -900, height: 0))
+        XCTAssertEqual(viewModel.activeIndex, 2, "no slide after the last")
+        XCTAssertEqual(external.value, 2)
+    }
+
+    func test_dragEnded_wrap_ontoAnEdgeCopy_isHandedToTheSnap() {
+        let memory = ACarouselOffsetMemory()
+        let external = ExternalIndex(0)
+        let viewModel = makeViewModel(count: 3, index: external, memory: memory)
+        viewModel.dragEnded(translation: CGSize(width: 200, height: 0), velocity: .zero)
+        XCTAssertEqual(viewModel.activeIndex, 0, "a rightward drag from slide 1 lands on the edge copy of slide 3")
+        XCTAssertEqual(external.value, 0, "an edge copy is not written through")
+        waitForTheSnapWindow()
+        XCTAssertEqual(viewModel.activeIndex, 3, "snapped to the real slide 3")
+        XCTAssertEqual(external.value, 2)
+        XCTAssertEqual(memory.settledIndex, 2)
+        XCTAssertFalse(memory.isAnimated)
+    }
+
+    func test_dragEnded_resetsTheCadence() {
+        let external = ExternalIndex(0)
+        let viewModel = makeViewModel(count: 3, index: external, autoScroll: .active(5), isTimerActive: true)
+        for _ in 1...4 {
+            viewModel.receiveTimer(Date())
+        }
+        XCTAssertEqual(viewModel.activeIndex, 1, "four of five ticks: no advance yet")
+        viewModel.dragEnded(translation: CGSize(width: 10, height: 0), velocity: .zero)
+        XCTAssertEqual(viewModel.activeIndex, 1, "under the threshold: no step")
+        for tick in 1...4 {
+            viewModel.receiveTimer(Date())
+            XCTAssertEqual(viewModel.activeIndex, 1, "tick \(tick) after the drag: the count restarted")
+        }
+        viewModel.receiveTimer(Date())
+        XCTAssertEqual(viewModel.activeIndex, 2, "the fifth tick after the drag advances")
+    }
+
+    func test_canMoveFalse_bothHandlersAreNoOps() {
+        let memory = ACarouselOffsetMemory()
+        let timer = ExternalFlag(true)
+        let external = ExternalIndex(1)
+        let viewModel = makeViewModel(count: 3, index: external, isWrap: false, memory: memory, canMove: false, timer: timer)
+        memory.isAnimated = false
+        viewModel.dragChanged(translation: CGSize(width: 300, height: 0))
+        XCTAssertEqual(viewModel.dragOffset, 0)
+        XCTAssertTrue(timer.value, "the timer is not stopped")
+        XCTAssertEqual(timer.writes, 0)
+        XCTAssertFalse(memory.isAnimated)
+        viewModel.dragEnded(translation: CGSize(width: 300, height: 0), velocity: CGSize(width: 900, height: 0))
+        XCTAssertEqual(viewModel.activeIndex, 1)
+        XCTAssertEqual(external.value, 1)
+    }
+
+    func test_gate_beginsOnlyForAHorizontalDominantStart_ofACarouselThatCanMove() {
+        XCTAssertTrue(ACarouselPanGesture.shouldBegin(translation: CGSize(width: 10, height: 3), canMove: true))
+        XCTAssertTrue(ACarouselPanGesture.shouldBegin(translation: CGSize(width: -10, height: 3), canMove: true), "either direction")
+        XCTAssertFalse(ACarouselPanGesture.shouldBegin(translation: CGSize(width: 3, height: 10), canMove: true), "vertical-dominant: the page scrolls")
+        XCTAssertFalse(ACarouselPanGesture.shouldBegin(translation: CGSize(width: 3, height: -10), canMove: true))
+        XCTAssertFalse(ACarouselPanGesture.shouldBegin(translation: CGSize(width: 7, height: 7), canMove: true), "a tie goes to the page (G-3 (a))")
+        XCTAssertFalse(ACarouselPanGesture.shouldBegin(translation: .zero, canMove: true))
+        XCTAssertFalse(ACarouselPanGesture.shouldBegin(translation: CGSize(width: 10, height: 0), canMove: false), "one slide: never (G-4 (a))")
+        XCTAssertFalse(ACarouselPanGesture.shouldBegin(translation: CGSize(width: 0, height: 10), canMove: false))
     }
 }

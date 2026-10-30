@@ -20,7 +20,6 @@
 
 import SwiftUI
 
-@available(iOS 13.0, OSX 10.15, *)
 public enum ACarouselAutoScroll {
     case inactive
     case active(TimeInterval)

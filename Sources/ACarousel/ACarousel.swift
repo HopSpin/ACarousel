@@ -21,7 +21,6 @@
 import SwiftUI
 
 
-@available(iOS 13.0, OSX 10.15, *)
 public struct ACarousel<Data, ID, Content> : View where Data : RandomAccessCollection, ID : Hashable, Content : View {
     
     @ObservedObject
@@ -55,7 +54,6 @@ public struct ACarousel<Data, ID, Content> : View where Data : RandomAccessColle
 
 // MARK: - Initializers
 
-@available(iOS 13.0, OSX 10.15, *)
 extension ACarousel {
     
     /// Creates an instance that uniquely identifies and creates views across
@@ -85,7 +83,6 @@ extension ACarousel {
     
 }
 
-@available(iOS 13.0, OSX 10.15, *)
 extension ACarousel where ID == Data.Element.ID, Data.Element : Identifiable {
     
     /// Creates an instance that uniquely identifies and creates views across
@@ -115,7 +112,6 @@ extension ACarousel where ID == Data.Element.ID, Data.Element : Identifiable {
 }
 
 
-@available(iOS 14.0, OSX 11.0, *)
 struct ACarousel_LibraryContent: LibraryContentProvider {
     let Datas = Array(repeating: _Item(color: .red), count: 3)
     @LibraryContentBuilder

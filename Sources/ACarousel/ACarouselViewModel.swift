@@ -21,7 +21,6 @@
 import SwiftUI
 import Combine
 
-@available(iOS 13.0, OSX 10.15, *)
 class ACarouselViewModel<Data, ID>: ObservableObject where Data : RandomAccessCollection, ID : Hashable {
     
     /// external index
@@ -264,58 +263,75 @@ extension ACarouselViewModel {
 
 // MARK: - Drag Gesture
 extension ACarouselViewModel {
-    /// drag gesture of view
+    /// drag gesture of view — an axis-gated UIKit pan (HopSpin ledger item
+    /// 46, G-1 (a)): a vertical start fails the pan and the enclosing scroll
+    /// view scrolls from the first point; a horizontal start moves the strip
+    /// with the page still; a one-slide carousel never begins. See
+    /// `ACarouselPanGesture`.
     var dragGesture: some Gesture {
-        DragGesture()
-            .onChanged(dragChanged)
-            .onEnded(dragEnded)
+        ACarouselPanGesture(
+            canMove: _canMove,
+            onChanged: { [weak self] translation in
+                self?.dragChanged(translation: translation)
+            },
+            onEnded: { [weak self] translation, velocity in
+                self?.dragEnded(translation: translation, velocity: velocity)
+            }
+        )
     }
-    
-    private func dragChanged(_ value: DragGesture.Value) {
+
+    /// `.began` and every `.changed` of the pan: the translation so far.
+    func dragChanged(translation: CGSize) {
         guard _canMove else { return }
-        
+
         isAnimatedOffset = true
-        
+
         /// Defines the maximum value of the drag
         /// Avoid dragging more than the values of multiple subviews at the end of the drag,
         /// and still only one subview is toggled
         var offset: CGFloat = itemActualWidth
-        if value.translation.width > 0 {
-            offset = min(offset, value.translation.width)
+        if translation.width > 0 {
+            offset = min(offset, translation.width)
         } else {
-            offset = max(-offset, value.translation.width)
+            offset = max(-offset, translation.width)
         }
-        
+
         /// set drag offset
         dragOffset = offset
-        
-        /// stop active timer
-        isTimerActive.wrappedValue = false
+
+        /// stop active timer — written once per drag, not once per delta
+        /// (G-R): a host whose binding publishes would otherwise rebuild the
+        /// carousel on every delta (L36-6)
+        if isTimerActive.wrappedValue {
+            isTimerActive.wrappedValue = false
+        }
     }
-    
-    private func dragEnded(_ value: DragGesture.Value) {
+
+    /// `.ended` of the pan (the velocity at lift) or `.cancelled` (a zero
+    /// velocity).
+    func dragEnded(translation: CGSize, velocity: CGSize) {
         guard _canMove else { return }
         /// reset drag offset
         dragOffset = .zero
-        
+
         /// reset timing; the timer is not re-armed here — `dragChanged`
         /// stopped it and the host owns when it runs again
         resetTiming()
 
-        let velocity = value.velocity.width
-        let flick = abs(velocity) > self.flick
+        let horizontalVelocity = velocity.width
+        let flick = abs(horizontalVelocity) > self.flick
 
         /// Defines the drag threshold
         /// At the end of the drag, if the drag value exceeds the drag threshold,
         /// the active view will be toggled
         /// default is one third of subview
         let dragThreshold: CGFloat = itemWidth / 3
-        
+
         var activeIndex = self.activeIndex
-        if value.translation.width > dragThreshold || (flick && velocity > 0) {
+        if translation.width > dragThreshold || (flick && horizontalVelocity > 0) {
             activeIndex -= 1
         }
-        if value.translation.width < -dragThreshold || (flick && velocity < 0) {
+        if translation.width < -dragThreshold || (flick && horizontalVelocity < 0) {
             activeIndex += 1
         }
         self.activeIndex = max(0, min(activeIndex, data.count - 1))
