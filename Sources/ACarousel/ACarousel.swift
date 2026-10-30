@@ -34,7 +34,7 @@ public struct ACarousel<Data, ID, Content> : View where Data : RandomAccessColle
         }.clipped()
     }
     
-    private func generateContent(proxy: GeometryProxy) -> some View {
+    @MainActor private func generateContent(proxy: GeometryProxy) -> some View {
         HStack(spacing: viewModel.spacing) {
             ForEach(viewModel.data, id: viewModel.dataId) {
                 content($0)

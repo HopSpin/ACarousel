@@ -268,7 +268,7 @@ extension ACarouselViewModel {
     /// view scrolls from the first point; a horizontal start moves the strip
     /// with the page still; a one-slide carousel never begins. See
     /// `ACarouselPanGesture`.
-    var dragGesture: some Gesture {
+    var dragGesture: ACarouselPanGesture {
         ACarouselPanGesture(
             canMove: _canMove,
             onChanged: { [weak self] translation in
