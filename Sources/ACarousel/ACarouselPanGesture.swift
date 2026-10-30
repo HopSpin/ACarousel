@@ -48,8 +48,9 @@ struct ACarouselPanGesture: UIGestureRecognizerRepresentable {
     /// the nonisolated initializer below and read only on the main actor,
     /// hence `nonisolated(unsafe)`.
     nonisolated(unsafe) let onChanged: (CGSize) -> Void
-    /// `.ended`: the translation and the velocity at lift; `.cancelled`: the
-    /// translation and a zero velocity.
+    /// `.ended`: the translation and the velocity at lift; `.cancelled`: a
+    /// zero translation and a zero velocity, so the strip springs back and
+    /// the cadence resets with no step (L46-1).
     nonisolated(unsafe) let onEnded: (CGSize, CGSize) -> Void
 
     /// Built by `ACarouselViewModel.dragGesture`, which is not main-actor
@@ -95,7 +96,7 @@ struct ACarouselPanGesture: UIGestureRecognizerRepresentable {
             let rate = recognizer.velocity(in: recognizer.view)
             onEnded(translation, CGSize(width: rate.x, height: rate.y))
         case .cancelled:
-            onEnded(translation, .zero)
+            onEnded(.zero, .zero)
         default:
             break
         }
